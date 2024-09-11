@@ -9,7 +9,10 @@ import { ModeToggle } from './mode-toggle'
 
 export default function Header() {
   return (
-    <div className='flex p-4 items-center'>
+    <div
+      className='flex p-4 items-center sticky top-0'
+      style={{ backgroundColor: 'hsl(var(--background))' }}
+    >
       <div className='flex-1 font-bold text-2xl'>
         <span className='dark:text-white'>Diff</span>
         <span className='text-yellow-500'>end</span>

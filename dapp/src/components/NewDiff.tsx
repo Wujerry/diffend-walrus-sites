@@ -20,11 +20,13 @@ import { Calendar } from './ui/calendar'
 import { CalendarIcon } from 'lucide-react'
 import { TimePickerComp } from './TimePickerComp'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { useSignAndExecuteTransaction } from '@mysten/dapp-kit'
+import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit'
 import { Transaction } from '@mysten/sui/transactions'
 import { HistoryId, PackageId } from '@/lib/consts'
 import { useState } from 'react'
 import { ReloadIcon } from '@radix-ui/react-icons'
+import { useHistoryStore } from '@/store/store'
+import { useToast } from '@/hooks/use-toast'
 
 const formSchema = z.object({
   title: z.string().min(6, {
@@ -45,8 +47,11 @@ const formSchema = z.object({
 
 export default function NewDiff({ address }: { address: string | undefined }) {
   const [open, setOpen] = useState(false)
+  const { toast } = useToast()
+  const client = useSuiClient()
   const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction()
   const [loading, setLoading] = useState(false)
+  const refetch = useHistoryStore((state) => state.refetch)
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -60,19 +65,19 @@ export default function NewDiff({ address }: { address: string | undefined }) {
   })
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log(123)
     if (loading) return
-    console.log(123)
-    if (!address) return null
-    console.log(123)
+    if (!address) {
+      return toast({
+        title: 'Please connect wallet',
+        variant: 'destructive',
+      })
+    }
     const date = new Date(values.date)
     const time = new Date(values.time)
     date.setHours(time.getHours(), time.getMinutes(), time.getSeconds())
     if (date < new Date()) return null
-    console.log(123)
     setLoading(true)
 
-    console.log(123)
     const tx = new Transaction()
     tx.moveCall({
       target: `${PackageId}::diffend::create_diff`,
@@ -90,11 +95,24 @@ export default function NewDiff({ address }: { address: string | undefined }) {
         transaction: tx,
       },
       {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onSuccess: (result: any) => {
-          setOpen(false)
-          setLoading(false)
-          console.log('executed transaction', result)
+        onSuccess: async (result) => {
+          const res = await client.waitForTransaction({ digest: result.digest })
+          if (!res.errors) {
+            form.reset()
+            setLoading(false)
+            setOpen(false)
+            console.log('executed transaction', result)
+            setTimeout(() => {
+              refetch()
+            }, 100)
+          } else {
+            setLoading(false)
+            toast({
+              title: res.errors.join(','),
+              variant: 'destructive',
+            })
+            console.error('error', res)
+          }
         },
         onError: (error) => {
           setLoading(false)

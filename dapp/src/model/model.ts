@@ -17,9 +17,12 @@ export interface DiffModel {
 }
 
 export interface VoteModel {
-  id: { id: string }
-  user: string
-  desc: string
-  note: string
-  claim_reward: boolean
+  fields: {
+    id: { id: string }
+    user: string
+    desc: string
+    note: string
+    vote: string
+    claim_reward: boolean
+  }
 }

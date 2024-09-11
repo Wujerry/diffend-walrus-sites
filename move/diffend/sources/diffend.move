@@ -8,6 +8,7 @@ module diffend::diffend {
     use sui::coin::{ Coin};
     use sui::coin::{into_balance, from_balance};
     use sui::{clock::Clock};
+    use sui::event;
 
     const USER_HAS_JOINED: u64 = 1;
     const BET_NOT_ENOUGH: u64 = 2;
@@ -16,6 +17,7 @@ module diffend::diffend {
     const REWARD_CLAIMED: u64 = 5;
     const CAN_NOT_VOTE_SELF: u64 = 6;
     const VOTE_NOT_FOUND: u64 = 7;
+    const OUT_OF_INDEX: u64 = 8;
     // share the bet reward to voters
     const Share_Rate: u64 = 10;
 
@@ -56,6 +58,16 @@ module diffend::diffend {
         claim_reward: bool,
     }
 
+    public struct DiffCreated has copy, drop{
+        desc: String,
+        index: u64,
+    }
+
+    public struct FighterJoined has copy, drop{
+        desc: String,
+        index: u64
+    }
+
     public struct DIFFEND has drop {}
 
     fun init(_witness: DIFFEND, ctx: &mut TxContext) {
@@ -89,14 +101,17 @@ module diffend::diffend {
             reward_claimed: false,
             votes: vector::empty<Vote>(),
         };
+        event::emit(DiffCreated { desc: title, index: history.record.length() });
         history.record.push_back(diff);
     }
 
-    entry fun join_diff_a(pool: &mut Pool, diff: &mut Diff, desc: String, bet: Coin<SUI>, clock: &Clock, r: &Random, ctx: &mut TxContext) {
+    entry fun join_diff_a(history: &mut History, pool: &mut Pool, diff_index: u64, desc: String, bet: Coin<SUI>, clock: &Clock, r: &Random, ctx: &mut TxContext) {
+        assert!(diff_index < history.record.length(), OUT_OF_INDEX);
+        let diff = &mut history.record[diff_index];
         assert!(diff.user_a == @0x999, USER_HAS_JOINED);
         assert!(clock.timestamp_ms() < diff.end_timestamp_ms, DIFF_HAS_ENDED);
         let bet_amount = bet.balance().value();
-        assert!(bet_amount > diff.bet_amount, BET_NOT_ENOUGH);
+        assert!(bet_amount == diff.bet_amount, BET_NOT_ENOUGH);
         diff.user_a = ctx.sender();
         diff.desc_a = desc;
         diff.bet_a = diff.bet_amount;
@@ -106,12 +121,17 @@ module diffend::diffend {
         }else {
             pool.balance.join(bet.into_balance());
         };
+
+        event::emit(FighterJoined { desc, index: diff_index });
     }
 
-    entry fun join_diff_b(pool: &mut Pool, diff: &mut Diff, desc: String,  bet: Coin<SUI>, r: &Random, ctx: &mut TxContext) {
+    entry fun join_diff_b(history: &mut History, pool: &mut Pool, diff_index: u64, desc: String,  bet: Coin<SUI>,clock: &Clock, r: &Random, ctx: &mut TxContext) {
+        assert!(diff_index < history.record.length(), OUT_OF_INDEX);
+        let diff = &mut history.record[diff_index];
         assert!(diff.user_b == @0x999, USER_HAS_JOINED);
+        assert!(clock.timestamp_ms() < diff.end_timestamp_ms, DIFF_HAS_ENDED);
         let bet_amount = bet.balance().value();
-        assert!(bet_amount > diff.bet_amount, BET_NOT_ENOUGH);
+        assert!(bet_amount == diff.bet_amount, BET_NOT_ENOUGH);
         diff.user_b = ctx.sender();
         diff.desc_b = desc;
         diff.bet_b = diff.bet_amount;
@@ -121,6 +141,8 @@ module diffend::diffend {
         }else {
             pool.balance.join(bet.into_balance());
         };
+
+        event::emit(FighterJoined { desc, index: diff_index });
     }
 
     fun winRandomDiff(pool: &mut Pool, diff: &mut Diff,  bet: Coin<SUI>, r: &Random, ctx: &mut TxContext) {
@@ -143,7 +165,9 @@ module diffend::diffend {
     	random::generate_u64_in_range(&mut random::new_generator(r, ctx), 0, 10)
   	}
 
-    entry fun vote_diff(diff: &mut Diff, vote_user: address, desc: String, clock: &Clock, ctx: &mut TxContext) {
+    entry fun vote_diff(history: &mut History,  diff_index: u64, vote_user: address, desc: String, clock: &Clock, ctx: &mut TxContext) {
+         assert!(diff_index < history.record.length(), OUT_OF_INDEX);
+        let diff = &mut history.record[diff_index];
         assert!(diff.user_a != @0x999 && diff.user_b != @0x999, USER_HAS_JOINED);
         assert!(clock.timestamp_ms() < diff.end_timestamp_ms, DIFF_HAS_ENDED);
         assert!(ctx.sender() != diff.user_a && ctx.sender() != diff.user_b, CAN_NOT_VOTE_SELF);
@@ -157,7 +181,9 @@ module diffend::diffend {
         diff.votes.push_back(vote);
     }
 
-    entry fun claim_reward(pool: &mut Pool, diff: &mut Diff, clock: &Clock, r: &Random, ctx: &mut TxContext) {
+    entry fun claim_reward(history: &mut History, pool: &mut Pool, diff_index: u64, clock: &Clock, r: &Random, ctx: &mut TxContext) {
+        assert!(diff_index < history.record.length(), OUT_OF_INDEX);
+        let diff = &mut history.record[diff_index];
         assert!(diff.user_a != @0x999 && diff.user_b != @0x999 && diff.is_random == false, USER_HAS_JOINED);
         assert!(clock.timestamp_ms() > diff.end_timestamp_ms, DIFF_HAS_NOT_ENDED);
 
@@ -180,23 +206,25 @@ module diffend::diffend {
 
     }
 
-    entry fun claim_reward_voter(pool: &mut Pool, diff: &mut Diff, vote: &mut Vote, clock: &Clock, r: &Random, ctx: &mut TxContext) {
-        assert!(diff.user_a != @0x999 && diff.user_b != @0x999 && diff.is_random == false, USER_HAS_JOINED);
-        assert!(clock.timestamp_ms() > diff.end_timestamp_ms, DIFF_HAS_NOT_ENDED);
-        assert!(diff.votes.contains(vote), VOTE_NOT_FOUND);
-        // if the winner is not decided, then calculate the winner
+    entry fun claim_reward_voter(history: &mut History, pool: &mut Pool, diff_index: u64, vote_index: u64, clock: &Clock, r: &Random, ctx: &mut TxContext) {
+        assert!(diff_index < history.record.length(), OUT_OF_INDEX);
+        let diff = &mut history.record[diff_index];
+        assert!(diff_index < diff.votes.length(), VOTE_NOT_FOUND);
+        let share_balance = diff.bet_amount * Share_Rate / 100 / diff.votes.length();
         if (diff.winner == @0x999) {
             calculateWinner(diff, r, ctx);
         };
-        if (diff.votes.contains(vote)) {
-            assert!(vote.claim_reward == false, REWARD_CLAIMED);
-            vote.claim_reward = true;
-            // share the reward to voters
-            let share_balance = diff.bet_amount * Share_Rate / 100 / diff.votes.length();
-            let reward = pool.balance.split(share_balance);
-            vote.claim_reward = true;
-            transfer::public_transfer(from_balance(reward, ctx), vote.user);
-        }
+        let vote = &mut diff.votes[vote_index];
+        assert!(diff.user_a != @0x999 && diff.user_b != @0x999 && diff.is_random == false, USER_HAS_JOINED);
+        assert!(clock.timestamp_ms() > diff.end_timestamp_ms, DIFF_HAS_NOT_ENDED);
+        // if the winner is not decided, then calculate the winner
+
+        assert!(vote.claim_reward == false, REWARD_CLAIMED);
+        vote.claim_reward = true;
+        // share the reward to voters
+        let reward = pool.balance.split(share_balance);
+        vote.claim_reward = true;
+        transfer::public_transfer(from_balance(reward, ctx), vote.user);
     }
 
     fun calculateWinner(diff: &mut Diff, r: &Random, ctx: &mut TxContext) {

@@ -5,6 +5,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import Home from './pages/Home'
 import Detail from './pages/Detail'
 import Header from './components/Header'
+import { Toaster } from './components/ui/toaster'
 
 const router = createBrowserRouter([
   {
@@ -12,7 +13,7 @@ const router = createBrowserRouter([
     element: <Home></Home>,
   },
   {
-    path: '/detail',
+    path: '/:id',
     element: <Detail></Detail>,
   },
 ])
@@ -23,6 +24,7 @@ function App() {
       <Web3Provider>
         <Header></Header>
         <RouterProvider router={router} />
+        <Toaster />
       </Web3Provider>
     </ThemeProvider>
   )
